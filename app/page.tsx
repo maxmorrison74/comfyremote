@@ -44,57 +44,22 @@ export default function ComfyRemote() {
   const fetchAll = async (key: string) => {
     if (!key) return;
     setLoading(true);
-    addLog("Connessione RunPod...");
+    addLog("Connessione RunPod via proxy...");
     try {
-      // Fetch pods - split queries to avoid 100 limit
-      const headers = { "Authorization": `Bearer ${key}` };
-      
-      const [podsRes, templatesRes, networkRes] = await Promise.all([
-        fetch("https://api.runpod.io/graphql", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-          body: JSON.stringify({ query: "{ pods { id name runtime { uptimeInSeconds } machine { gpuTypeId } } }" })
-        }).then(r => r.json()),
-        fetch("https://api.runpod.io/graphql", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-          body: JSON.stringify({ query: "{ myself { podTemplates { id name containerDiskInGb } } }" })
-        }).then(r => r.json()),
-        fetch("https://api.runpod.io/graphql", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-          body: JSON.stringify({ query: "{ pods { id networkVolumeId } }" })
-        }).then(r => r.json()).catch(() => null)
+      const q1 = "{ pods { id name runtime { uptimeInSeconds } machine { gpuTypeId } } }";
+      const q2 = "{ myself { podTemplates { id name } pods { id name } } }";
+      const [r1, r2] = await Promise.all([
+        fetch("/api/runpod", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key }, body: JSON.stringify({ query: q1 }) }).then(r=>r.json()),
+        fetch("/api/runpod", { method: "POST", headers: { "Content-Type": "application/json", "x-api-key": key }, body: JSON.stringify({ query: q2 }) }).then(r=>r.json())
       ]);
-
-      // Handle pods from different shapes
-      let podsData: any[] = [];
-      if (podsRes?.data?.pods) podsData = podsRes.data.pods;
-      if (podsRes?.data?.myself?.pods) podsData = podsRes.data.myself.pods;
-
-      // If we got only 100, try paginated
-      if (podsData.length === 100) {
-        addLog("⚠️ 100+ pods, carico resto...");
-        // Try second query with offset - RunPod doesn't support offset, but we try myself pods
-        const extra = await fetch("https://api.runpod.io/graphql", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${key}` },
-          body: JSON.stringify({ query: "{ myself { pods { id name } } }" })
-        }).then(r => r.json());
-        if (extra?.data?.myself?.pods) {
-          podsData = extra.data.myself.pods;
-        }
-      }
-
+      let podsData = r1?.data?.pods || r2?.data?.myself?.pods || [];
+      if (podsData.length===0 && r1?.errors) addLog(`GraphQL error: ${JSON.stringify(r1.errors).slice(0,200)}`);
       setPods(podsData);
       addLog(`Pod trovati: ${podsData.length}`);
-
-      const tmpl = templatesRes?.data?.myself?.podTemplates || [];
+      const tmpl = r2?.data?.myself?.podTemplates || [];
       setTemplates(tmpl);
       addLog(`Template: ${tmpl.length}`);
-
       if (podsData.length > 0 && !selectedPod) setSelectedPod(podsData[0].id);
-
     } catch (e: any) {
       addLog(`Errore: ${e.message}`);
     }
