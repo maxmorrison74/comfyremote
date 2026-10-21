@@ -1,4 +1,4 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-body { background: #0a0a0b; color: #fff; }
+body { background:#0a0a0b; color:white; }
